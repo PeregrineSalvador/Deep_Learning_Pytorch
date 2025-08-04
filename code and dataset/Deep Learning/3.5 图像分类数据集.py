@@ -55,7 +55,8 @@ def load_data_fashion_minist(batch_size, resize = None):
     trans = [transforms.ToTensor()] # PIL转换为张量
     if resize: ##如果需要变形
         trans.insert(0,transforms.Resize(resize))
-    trans = transforms.Compose(trans)#“作曲函数”，将所有需要的操作编程流水线处理，一旦调用trans就进行所有的操作。在这个实例中transforms.Compose并无鸟用，因为只有一个totensor的操作
+    trans = transforms.Compose(trans)
+    # “作曲函数”，将所有需要的操作编程流水线处理，一旦调用trans就进行所有的操作。在这个实例中transforms.Compose并无鸟用，因为只有一个totensor的操作
     minist_train = torchvision.datasets.FashionMNIST(
         root = "../data", train = True, transform=trans, download = True 
     )

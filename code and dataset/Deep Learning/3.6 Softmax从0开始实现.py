@@ -1,72 +1,88 @@
-'''
-手搓图像分类数据集
-'''
-
 import torch
-import torchvision
-from torch.utils import data
-from torchvision import transforms
+from IPython import display
 from d2l import torch as d2l
-
-d2l.use_svg_display()
-
-trans = transforms.ToTensor()
-# 先将数据集的存在形式从PIL类型转换为Tensor，这样才能输入到Dataloader中去
-minist_train = torchvision.datasets.FashionMNIST(
-    root = "../data", train = True, transform=trans, download = True 
-)
-
-minist_test = torchvision.datasets.FashionMNIST(
-    root = "../data", train = False, transform=trans, download = True 
-)
-
-def get_dataset_labels(labels):
-    text_labels = ['t-shirt', 'trouser', 'pullover', 'dress', 'coat', 'sandal', 'shirt', 'sneaker,', 'bag', 'ankle boot']
-    return [text_labels[int(i)] for i in labels]
-
-def show_img(imgs, num_rows, num_cols, titles = None, scales =1.5):
-    figsize = (num_cols * scales, num_rows * scales)
-    _,axes = d2l.plt.subplot(num_rows, num_cols , figsize)
-    axes = axes.flatten()
-    for i, (ax, img) in enumerate(zip(axes, imgs)):
-        if torch.is_tensor(img):
-            ax.imshow(img.numpy)
-        else:
-            ax.imshow(img)
-        ax.axes.get_xaxis().set_visible(False)
-        ax.axes.get_yaxis().set_visible(False)
-        if titles:
-            ax.set_title(titles[i])
-    return axes
+from torch.utils.data import DataLoader
+from torchvision import datasets, transforms
 
 batch_size = 256
-
-def get_dataloader_workers():
-    return 4
-
-# workers 可以理解成为工人数量，现在一共有四个工人并行进行数据处理。数据的加载和处理主要是在CPU上完成；而模型计算才是在GPU完成的
-# workers 的数量通常为 workers = min(4, num_core - 1)
-# 如果你手贱给多了，超过CPU所具有的核心数，就会死机
-train_iter = data.DataLoader(minist_train, batch_size, shuffle = True, num_workers= get_dataloader_workers())
-
-X, y = next(iter(data.DataLoader(minist_train, batch_size = 18)))
-
-def load_data_fashion_minist(batch_size, resize = None):
-    trans = [transforms.ToTensor()]
-    if resize:
-        trans.insert(0,transforms.Resize(resize))
-    trans = transforms.Compose(trans)
-    minist_train = torchvision.datasets.FashionMNIST(
-        root = "../data", train = True, transform=trans, download = True 
+def load_data_fashion_mnist(batch_size, num_workers=4): 
+    # 在windows上，如果想用多线程，必须定义__name__进入主循环;否则就只能用单线程
+    # 数据预处理
+    transform = transforms.Compose([
+        transforms.ToTensor(),
+        transforms.Normalize((0.2860,), (0.3530,))  # FashionMNIST 的均值和标准差
+    ])
+    
+    # 加载训练集和测试集
+    train_data = datasets.FashionMNIST(
+        root='./data', train=True, download=True, transform=transform
     )
-    minist_test = torchvision.datasets.FashionMNIST(
-        root = "../data", train = False, transform=trans, download = True 
+    test_data = datasets.FashionMNIST(
+        root='./data', train=False, download=True, transform=transform
     )
-    return (data.DataLoader(minist_train,batch_size,shuffle=True,  num_workers= get_dataloader_workers()), 
-            data.DataLoader(minist_test,batch_size,shuffle=True,  num_workers= get_dataloader_workers()))
+    
+    # 创建 DataLoader
+    train_iter = DataLoader(
+        train_data, batch_size=batch_size, shuffle=True, num_workers=num_workers
+    )
+    test_iter = DataLoader(
+        test_data, batch_size=batch_size, shuffle=False, num_workers=num_workers
+    )
+    
+    return train_iter, test_iter
 
-train_iter, test_iter = load_data_fashion_minist(32, resize = 36)
+# 使用自定义的加载函数
+batch_size = 256
+train_iter, test_iter = load_data_fashion_mnist(batch_size, num_workers=4) 
 
-for X,y in train_iter:
-    print(X.shape, X.dtype, y.shape, y.dtype)
-    break
+num_inputs = 784 # 输入是28*28 = 784 的
+num_outputs = 10 # 输出共有十个类别
+
+class Accumulator: # 累加器
+    def __init__(self, n):
+        self.data = [0.0] * n # 这里不是乘法运算，是重复的次数，也就是维度 n = 2
+
+
+    def add(self, *args):
+        self.data = [a + float(b) for a, b in zip(self.data, args)]
+    
+    def reset(self):
+        self.data = [0.0] * len(self.data)
+
+    def __getitem__(self, idx):
+        return self.data[idx]
+
+
+W = torch.normal(0, 0.01, size = (num_inputs, num_outputs), requires_grad= True)
+b = torch.zeros(num_outputs, requires_grad=True)
+
+def softmax(X):
+    # 这里输出的行数是batch_size 用以表示不同批次的训练 列数表示分类的类别数量
+    X_exp = torch.exp(X) # 先将每一个元素都求幂指数
+    partition = X_exp.sum(1, keepdim=True) # 每一行累加求得行内分母，因为是分批次进行训练的，每一个批次要单独计算
+    return X_exp / partition 
+
+def net(X):
+    # 就单纯一个线性网络而已
+    return softmax(torch.matmul(X.reshape(-1, W.shape[0]), W) + b)
+
+def cross_entropy(y_hat, y):
+    return -torch.log(y_hat[range(len(y)), y])
+
+def accuracy(y_hat, y):
+    if len(y_hat.shape) > 1 and y_hat.shape[1] > 1: #判断y_hat是否为高维，如果维度高则进行处理
+        y_hat = y_hat.argmax(axis=1) # 获取概率最大的类别索引
+    cmp = y_hat.type(y.dtype) == y # 生成布尔张量
+    return float(cmp.type(y.dtype).sum()) # 保证类型一致
+
+def evaluate_accuracy(net, data_iter):
+    if isinstance(net, torch.nn.Module):
+        net.eval()
+    metric = Accumulator(2)
+    with torch.no_grad():
+        for X,y in data_iter:
+            metric.add(accuracy(net(X), y), y.numel()) # y.numel()返回的是当前批量的样本数
+    return metric[0]/metric[1] #将X输入，与正确的y标签进行判断正确率
+
+if __name__ == '__main__':
+    print(evaluate_accuracy(net, test_iter)) # 这里是随机猜测，因而打印出来值应当接近0.1
