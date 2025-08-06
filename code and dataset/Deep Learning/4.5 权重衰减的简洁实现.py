@@ -21,3 +21,4 @@ def train_concise(wd):
             l = loss(net(X), y)
             l.mean().backward()
             trainer.step()
+            
