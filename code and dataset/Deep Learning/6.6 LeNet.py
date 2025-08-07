@@ -12,19 +12,19 @@ from d2l import torch as d2l
  # 将输出铺平
  # 全连接层输入 16*5*5
 
-'''Sequential是用以维护由Module组成的有序列表;本质是管理层的快'''
+'''Sequential是用以维护由Module组成的有序列表;本质是管理层的块'''
 net = nn.Sequential(
     nn.Conv2d(1, 6, kernel_size=5, padding=2),
-    nn.Sigmoid(),
+    nn.ReLU(),
     nn.AvgPool2d(kernel_size=2, stride=2),
     nn.Conv2d(6, 16, kernel_size=5),
-    nn.Sigmoid(),
+    nn.ReLU(),
     nn.AvgPool2d(kernel_size=2, stride=2),
     nn.Flatten(),
     nn.Linear(16 * 5 * 5, 120),
-    nn.Sigmoid(),
+    nn.ReLU(),
     nn.Linear(120, 84),
-    nn.Sigmoid(),
+    nn.ReLU(),
     nn.Linear(84, 10),
 )
 
@@ -35,8 +35,10 @@ net = nn.Sequential(
 高度 图像的垂直像素数
 宽度 图像的水平像素数
 '''
+'''
 X = torch.rand(size=(1, 1, 28, 28), dtype=torch.float32) # 这里的像素维度不能随意改变，因为他明确了全连接层输入层的大小。这也是LeNet的弊端
 # 逐层处理X，并且输出处理过程的信息 确保X的正确
+# '''
 
 
 batch_size = 256
@@ -140,7 +142,18 @@ def train_ch6(net, train_iter, test_iter, num_epochs, lr, device):
             test_acc = evaluate_accuracy_gpu(net, test_iter)
             print(f'loss {train_l:.3f},train_acc {train_acc:.3f},'f'test_acc{test_acc:.3f}')
 '''
+acc_queue = [0.1, 0, 0.1, 0]
 
+def calcu_delta_acc(cur_train_acc, cur_test_acc):
+    acc_queue[1] = cur_train_acc
+    acc_queue[3] = cur_test_acc
+    delta_train_acc = acc_queue[1] - acc_queue[0]
+    delta_test_acc = acc_queue[3] - acc_queue[2]
+    acc_queue[0] = cur_train_acc
+    acc_queue[2] = cur_test_acc
+    delta_acc = [delta_train_acc, delta_test_acc]
+    return delta_acc
+    
 def train_ch6(net, train_iter, test_iter, num_epochs, lr, device):
     def init_weights(m):
         if type(m) == nn.Linear or type(m) == nn.Conv2d:
@@ -171,13 +184,25 @@ def train_ch6(net, train_iter, test_iter, num_epochs, lr, device):
         train_l = metric[0] / metric[2]
         train_acc = metric[1] / metric[2]
         test_acc = evaluate_accuracy_gpu(net, test_iter)  # 移到 batch 循环外
+        delta_acc = calcu_delta_acc(train_acc, test_acc)
+        
         print(f'epoch {epoch + 1}, loss {train_l:.3f}, '
               f'train_acc {train_acc:.3f}, test_acc {test_acc:.3f}, '
-              f'time {timer.sum():.1f} sec')
+              f'time {timer.sum():.1f} sec,'
+              f'delta_train_acc {delta_acc[0]:.3f},'
+              f'delta_test_acc {delta_acc[1]:.3f}')
+        if(epoch == num_epochs):
+            print('已经达到训练次数极限')
+        if(test_acc > 0.9 or train_acc > 0.95):
+            print("已经达到预期效果，提前退出训练")
+            break
         
-lr, num_epochs = 0.05, 10
-if __name__ == '__main__':
+lr, num_epochs = 0.12, 50
+
+'''
     for layer in net:
         X = layer(X)
         print(layer.__class__.__name__, "output shape: \t",X.shape)
+'''
+if __name__ == '__main__':
     train_ch6(net, train_iter, test_iter, num_epochs, lr, d2l.try_gpu())
